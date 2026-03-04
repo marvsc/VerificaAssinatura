@@ -20,21 +20,19 @@
 
 class SignatureRetriever {
 public:
-    SignatureRetriever(const std::string& pkcs12_file_path);
-    SignatureRetriever(const std::string& pkcs12_file_path, const std::string& pkcs12_password);
-    void set_cms_file(const std::string& cms_file) {
-        cms_file_ = cms_file;
-    }
+    SignatureRetriever(const std::string& cms_file, const std::string& pkcs12_file_path);
+    SignatureRetriever(const std::string& cms_file, const std::string& pkcs12_file_path, const std::string& pkcs12_password);
+    bool verify();
 private:
     std::unique_ptr<STACK_OF(X509), decltype(&OSSL_STACK_OF_X509_free)> certificates_;
-    std::string cms_file_;
     std::shared_ptr<CMS_ContentInfo> content_info_;
     std::string file_content_hex_;
     std::set<std::string> signer_names_;
     std::set<std::string> signing_names_;
     std::set<std::string> hashs_;
 
-    void init(const Data::POCO::PKCS12POCO& pkcs12_poco);
+    void init(const std::string& cms_file, const Data::POCO::PKCS12POCO& pkcs12_poco);
+    const std::string get_issuer_uri();
 };
 
 #endif /* INCLUDE_SIGNATURERETRIEVER_H_ */
