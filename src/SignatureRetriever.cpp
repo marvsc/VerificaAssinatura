@@ -15,36 +15,43 @@
 #include <Poco/DateTimeParser.h>
 #include <Poco/DateTimeFormatter.h>
 #include <Poco/DateTimeFormat.h>
+#include <Poco/URI.h>
 
 #include <Poco/Net/HTTPStreamFactory.h>
 
-SignatureRetriever::SignatureRetriever(const std::string& cms_file, const std::string& pkcs12_file_path) :
+SignatureRetriever::SignatureRetriever(const std::string& pkcs12_file_path, const std::string& cms_file) :
         certificates_(sk_X509_new_null(), OSSL_STACK_OF_X509_free),
-        store_(X509_STORE_new(), X509_STORE_free), file_content_hex_(""), hash_("") {
+        store_(X509_STORE_new(), X509_STORE_free),
+        content_info_(nullptr, CMS_ContentInfo_free), hash_("") {
     PKCS12Parser parser(pkcs12_file_path);
-    init(cms_file, parser.parse());
+    init(std::move(parser.parse()->certificate), cms_file);
 }
 
-SignatureRetriever::SignatureRetriever(const std::string& cms_file, const std::string& pkcs12_file_path,
-        const std::string& pkcs12_password) :
+SignatureRetriever::SignatureRetriever(const std::string& pkcs12_file_path, const std::string& pkcs12_password,
+        const std::string& cms_file) :
                 certificates_(sk_X509_new_null(), OSSL_STACK_OF_X509_free),
-                store_(X509_STORE_new(), X509_STORE_free), file_content_hex_(""), hash_("") {
+                store_(X509_STORE_new(), X509_STORE_free),
+                content_info_(nullptr, CMS_ContentInfo_free), hash_("") {
     PKCS12Parser parser(pkcs12_file_path, pkcs12_password);
-    init(cms_file, parser.parse());
+    init(std::move(parser.parse()->certificate), cms_file);
 }
 
-void SignatureRetriever::init(const std::string& cms_file, const Data::POCO::PKCS12POCO& pkcs12_poco) {
-    if (!sk_X509_push(certificates_.get(), pkcs12_poco.certificate.get())) {
+void SignatureRetriever::init(std::unique_ptr<X509, decltype(&X509_free)> certificate, const std::string& cms_file) {
+    if (!sk_X509_push(certificates_.get(), certificate.get())) {
         OpenSSLUtils::openssl_error_handling("Erro adicionando certificado a verificação");
+    }
+    std::string url_cacert(get_issuer_uri(certificate.release()));
+    std::vector<char> cacert = download_cacert(url_cacert);
+    populate_store(pkcs7_buffer_to_structure(cacert));
+    X509_VERIFY_PARAM* param = X509_STORE_get0_param(store_.get());
+    if (!param) {
+        OpenSSLUtils::openssl_error_handling("Erro obtendo parâmetro de verificação");
+    }
+    if (!X509_VERIFY_PARAM_set_purpose(param, X509_PURPOSE_ANY)) {
+        OpenSSLUtils::openssl_error_handling("Erro definindo propósito como qualquer");
     }
     std::unique_ptr<BIO, decltype(&BIO_free)> cms_buffer(BIO_new_file(cms_file.c_str(), "r"), BIO_free);
     content_info_.reset(d2i_CMS_bio(cms_buffer.get(), nullptr));
-    std::string url_cacert = get_issuer_uri(pkcs12_poco.certificate);
-    std::vector<char> cacert = download_cacert(url_cacert);
-    std::shared_ptr<PKCS7> pkcs7 = prepare_pkcs7_structure(cacert);
-    X509* certificate_authority = find_certificate_authority(pkcs7->d.sign->cert);
-    std::shared_ptr<Poco::TemporaryFile> temporary_certificate = write_certificate_to_temporary_file(certificate_authority);
-    load_temporary_certificate(temporary_certificate);
 }
 
 bool SignatureRetriever::verify() {
@@ -52,15 +59,11 @@ bool SignatureRetriever::verify() {
     if (!CMS_verify(content_info_.get(), certificates_.get(), store_.get(), nullptr, content_bio.get(), 0)) {
         return false;
     }
-    BUF_MEM* content_buffer = nullptr;
-    BIO_get_mem_ptr(content_bio.get(), &content_buffer);
-    file_content_hex_.assign(OPENSSL_buf2hexstr(reinterpret_cast<const unsigned char*>(content_buffer->data),
-            content_buffer->length));
     return true;
 }
 
-const std::string SignatureRetriever::get_issuer_uri(std::shared_ptr<X509> certificate) {
-    X509_EXTENSION *extension = X509_get_ext(certificate.get(), X509_get_ext_by_NID(certificate.get(),
+const std::string SignatureRetriever::get_issuer_uri(const X509* certificate) const {
+    X509_EXTENSION *extension = X509_get_ext(certificate, X509_get_ext_by_NID(certificate,
             NID_info_access, -1));
     if (!extension) {
         throw std::runtime_error("Não foi possível extrair a extensão do certificado X509");
@@ -94,9 +97,9 @@ const std::vector<char> SignatureRetriever::download_cacert(const std::string &u
     return cacert_vector;
 }
 
-std::shared_ptr<PKCS7> SignatureRetriever::prepare_pkcs7_structure(const std::vector<char>& buffer) const {
+std::unique_ptr<PKCS7, decltype(&PKCS7_free)> SignatureRetriever::pkcs7_buffer_to_structure(const std::vector<char>& buffer) const {
     std::unique_ptr<BIO, decltype(&BIO_free)> input(BIO_new_mem_buf(buffer.data(), buffer.size()), BIO_free);
-    std::shared_ptr<PKCS7> pkcs7(d2i_PKCS7_bio(input.get(), nullptr), PKCS7_free);
+    std::unique_ptr<PKCS7, decltype(&PKCS7_free)> pkcs7(d2i_PKCS7_bio(input.get(), nullptr), PKCS7_free);
     if (!pkcs7.get()) {
         OpenSSLUtils::openssl_error_handling("Erro decodificando PKCS7");
     }
@@ -106,47 +109,24 @@ std::shared_ptr<PKCS7> SignatureRetriever::prepare_pkcs7_structure(const std::ve
     return pkcs7;
 }
 
-X509* SignatureRetriever::find_certificate_authority(const STACK_OF(X509)* certificate_chain) const {
+void SignatureRetriever::populate_store(std::unique_ptr<PKCS7, decltype(&PKCS7_free)> pkcs7) {
+    STACK_OF(X509)* certificate_chain = pkcs7->d.sign->cert;
     int certificate_chain_size = sk_X509_num(certificate_chain);
     for (int i = 0; i < certificate_chain_size; i++) {
         X509* certificate = sk_X509_value(certificate_chain, i);
         int crit = -1;
         std::unique_ptr<BASIC_CONSTRAINTS, decltype(&BASIC_CONSTRAINTS_free)> basic_constraints((BASIC_CONSTRAINTS*) X509_get_ext_d2i(certificate,
                 NID_basic_constraints, &crit, nullptr), BASIC_CONSTRAINTS_free);
-        if (basic_constraints.get() && basic_constraints->ca) {
-            return certificate;
+        if (!basic_constraints.get() || !basic_constraints->ca) {
+            continue;
+        }
+        if (!X509_STORE_add_cert(store_.get(), certificate)) {
+            OpenSSLUtils::openssl_error_handling("Erro adicionando certificado da autoridade certificadora");
         }
     }
-    return nullptr;
 }
 
-std::shared_ptr<Poco::TemporaryFile> SignatureRetriever::write_certificate_to_temporary_file(const X509* certificate) const {
-    std::shared_ptr<Poco::TemporaryFile> temp_file;
-    std::unique_ptr<FILE, int (*)(FILE*)> file_ptr(std::fopen(temp_file->path().c_str(), "wb+"), std::fclose);
-    if (!file_ptr.get()) {
-        std::runtime_error("Não foi possível criar o arquivo temporário com o certificado da autoridade certificadora");
-    }
-    if (!PEM_write_X509(file_ptr.get(), certificate)) {
-        OpenSSLUtils::openssl_error_handling("Erro escrevendo certificado da autoridade certificadora em disco");
-    }
-    file_ptr.reset();
-    return temp_file;
-}
-
-void SignatureRetriever::load_temporary_certificate(std::shared_ptr<Poco::TemporaryFile> temporary_certificate) const {
-    if (!X509_STORE_load_locations(store_.get(), temporary_certificate->path().c_str(), nullptr)) {
-        OpenSSLUtils::openssl_error_handling("Erro carregando certificado da autoridade certificadora");
-    }
-}
-
-std::string SignatureRetriever::get_file_content_hex() const {
-    if (file_content_hex_.empty()) {
-        throw std::runtime_error("Arquivo não verificado");
-    }
-    return file_content_hex_;
-}
-
-std::set<std::string> SignatureRetriever::get_signer_names() const {
+std::set<std::string> SignatureRetriever::get_signer_names() {
     if (!content_info_.get()) {
         throw std::runtime_error("Arquivo não verificado");
     }
@@ -177,7 +157,7 @@ std::set<std::string> SignatureRetriever::get_signer_names() const {
     return signer_names_;
 }
 
-std::set<std::string> SignatureRetriever::get_signing_times() const {
+std::set<std::string> SignatureRetriever::get_signing_times() {
     if (!content_info_.get()) {
         throw std::runtime_error("Arquivo não verificado");
     }
@@ -223,7 +203,7 @@ std::set<std::string> SignatureRetriever::get_signing_times() const {
     return signing_times_;
 }
 
-std::string SignatureRetriever::get_hash() const {
+std::string SignatureRetriever::get_hash() {
     if (!content_info_.get()) {
         throw std::runtime_error("Arquivo não verificado");
     }
@@ -234,48 +214,28 @@ std::string SignatureRetriever::get_hash() const {
     if (encap_content == nullptr || *encap_content == nullptr) {
         return hash_;
     }
-    // TODO: ARRUMAR
-    hash_.assign(reinterpret_cast<char*>((*encap_content)->data));
+    hash_.assign(OPENSSL_buf2hexstr((ASN1_STRING_get0_data(*encap_content)), ASN1_STRING_length(*encap_content)));
     return hash_;
 }
 
-
-
-/*
- * #include <openssl/cms.h>
-#include <openssl/pem.h>
-#include <openssl/err.h>
-#include <iostream>
-
-// Function to print the digest algorithm
-void print_encap_digest_alg(CMS_ContentInfo *cms) {
-    if (CMS_get0_type(cms) != OBJ_nid2obj(NID_pkcs7_signed)) {
-        std::cerr << "Not a SignedData structure" << std::endl;
-        return;
+std::set<std::string> SignatureRetriever::get_algorithms() {
+    if (!content_info_.get()) {
+        throw std::runtime_error("Arquivo não verificado");
     }
-
-    // 1. Get the SignedData structure
-    CMS_SignedData *sd = CMS_get0_SignedData(cms);
-    if (!sd) return;
-
-    // 2. Get the stack of digest algorithms
-    const STACK_OF(X509_ALGOR) *algors = CMS_SignedData_get0_digestAlgs(sd);
-
-    // 3. Iterate through algorithms (usually one)
-    for (int i = 0; i < sk_X509_ALGOR_num(algors); i++) {
-        X509_ALGOR *alg = sk_X509_ALGOR_value(algors, i);
-
-        // 4. Get the NID (Numerical Identifier) of the algorithm
-        ASN1_OBJECT *alg_obj;
-        X509_ALGOR_get0(&alg_obj, NULL, NULL, alg);
-        int nid = OBJ_obj2nid(alg_obj);
-
-        std::cout << "Digest Algorithm: " << OBJ_nid2ln(nid) << std::endl;
+    if (!algorithms_.empty()) {
+        return algorithms_;
     }
+    STACK_OF(CMS_SignerInfo)* signers = CMS_get0_SignerInfos(content_info_.get());
+    for (int i = 0; i < sk_CMS_SignerInfo_num(signers); i++) {
+        CMS_SignerInfo* signer_info = sk_CMS_SignerInfo_value(signers, i);
+        X509_ALGOR* algorithm = nullptr;
+        CMS_SignerInfo_get0_algs(signer_info, nullptr, nullptr, &algorithm, nullptr);
+        if (!algorithm) {
+            continue;
+        }
+        const ASN1_OBJECT* digest_object = nullptr;
+        X509_ALGOR_get0(&digest_object, nullptr, nullptr, algorithm);
+        algorithms_.emplace(OBJ_nid2ln(OBJ_obj2nid(digest_object)));
+    }
+    return algorithms_;
 }
-
-// Usage Example (assuming CMS_ContentInfo *cms is loaded)
-// print_encap_digest_alg(cms);
- *
- */
-

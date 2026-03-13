@@ -1,7 +1,9 @@
 #include <unistd.h>
 #include <string>
 
-#include "VerificaAssinatura.h"
+#include "SignatureRetriever.h"
+
+#include <OpenSSLUtils.h>
 
 int main(const int argc, char *const argv[]) {
     int opt;
@@ -45,7 +47,7 @@ int main(const int argc, char *const argv[]) {
         return EXIT_FAILURE;
     }
     try {
-        VerificaAssinatura va(pkcs12_file, password, signature_file);
+        SignatureRetriever va(pkcs12_file, password, signature_file);
         if (va.verify()) {
             std::printf("Arquivo %s de assinatura válido\n", signature_file.c_str());
             std::set<std::string> signer_names = va.get_signer_names();
@@ -56,9 +58,14 @@ int main(const int argc, char *const argv[]) {
             for (std::string signing_time : signing_times) {
                 std::printf("Data da assinatura encontrada: %s\n", signing_time.c_str());
             }
-            std::printf("Hash do documento: %s\n", va.get_file_content().c_str());
+            std::printf("Hash do arquivo em hexadecimal: %s\n", va.get_hash().c_str());
+            std::set<std::string> algorithms = va.get_algorithms();
+            for (std::string algorithm : algorithms) {
+                std::printf("Algoritmo encontrado: %s\n", algorithm.c_str());
+            }
         } else {
-            va.throw_error("Arquivo %s de assinatura inválido");
+            std::string prefix("Arquivo ");
+            OpenSSLUtils::openssl_error_handling(prefix.append(signature_file).append(" de assinatura inválido").c_str());
         }
     } catch (std::exception& e) {
         std::printf("Erro de execução: %s\n", e.what());

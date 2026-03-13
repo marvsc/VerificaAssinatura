@@ -3,9 +3,11 @@ project(PackageTest CXX)
 
 
 find_package(verificaassinatura CONFIG REQUIRED)
+find_package(OpenSSL CONFIG REQUIRED)
 
 add_executable(example src/example.cpp)
-target_link_libraries(example verificaassinatura::verificaassinatura)
+target_link_libraries(example openssl::openssl verificaassinatura::verificaassinatura)
+
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/resources/arquivos/signature.p7s
 ${CMAKE_CURRENT_BINARY_DIR}/signature.p7s
