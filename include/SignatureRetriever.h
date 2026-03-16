@@ -24,7 +24,6 @@ public:
     SignatureRetriever(const std::string& pkcs12_file_path, const std::string& cms_file);
     SignatureRetriever(const std::string& pkcs12_file_path, const std::string& pkcs12_password, const std::string& cms_file);
     bool verify();
-    std::string get_file_content_hex() const;
     std::set<std::string> get_signer_names();
     std::set<std::string> get_signing_times();
     std::string get_hash();

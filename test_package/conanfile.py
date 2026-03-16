@@ -13,6 +13,7 @@ class verificaassinaturaTestConan(ConanFile):
         self.requires(self.tested_reference_str)
         self.requires("assinaturadigital/[>v0.1.15]")
         self.requires("openssl/[>3.5.0]")
+        self.requires("cppunit/[>=1.15.1]")
 
     def build(self):
         cmake = CMake(self)
@@ -26,3 +27,5 @@ class verificaassinaturaTestConan(ConanFile):
         if can_run(self):
             cmd = os.path.join(self.cpp.build.bindir, "example -x certificado_teste_hub.pfx -p bry123456 -o signature.p7s")
             self.run(cmd, env="conanrun")
+            cmd_test = os.path.join(self.cpp.build.bindir, "teste")
+            self.run(cmd_test)
