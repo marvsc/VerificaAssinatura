@@ -1,9 +1,3 @@
-/*
- * SignatureRetrieverTest.cpp
- *
- *  Created on: Mar 15, 2026
- *      Author: marcus
- */
 
 #include "../include/SignatureRetrieverTest.h"
 
@@ -13,7 +7,10 @@
 
 #include <cstdio>
 
+// Tamanho do buffer utilizado na contrução de mensagens de erro.
 #define BUFFER_SIZE 256
+
+// Macro para criação de mensagens de erro
 #define PRINTF_MESSAGE(format, ...) \
     ([&]() { \
             char buffer[BUFFER_SIZE]; \
@@ -21,9 +18,12 @@
             return std::string(buffer); \
     }())
 
+// Registra o suite de testes
 CPPUNIT_TEST_SUITE_REGISTRATION(SignatureRetrieverTest);
 
 void SignatureRetrieverTest::teste_verificacao_com_senha_estendido() {
+    // Por segurança, a senha não deve ser armazenada em código, então ela é obtida cifrada com
+    // algoritmo AES-256-CBC em base 64 através de uma variável de ambiente.
     SignatureRetriever signature_retriever(PKCS12_FILE_PATH,
             OpenSSLUtils::decrypt_aes_256_cbc(std::getenv(PKCS12_ENVVAR_PASSWORD),
                     AES_KEY, reinterpret_cast<const unsigned char*>(AES_INITIALIZATION_VECTOR)),

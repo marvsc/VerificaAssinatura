@@ -1,8 +1,8 @@
 /*
- * VerificaAssinaturaMacros.h
- *
- *  Created on: Mar 15, 2026
- *      Author: marcus
+ * @file VerificaAssinaturaMacros.h
+ * @brief Macros necessárias para execução de testes
+ * @author Marcus Chaves
+ * @date 2026-01-27
  */
 
 #ifndef TEST_PACKAGE_SRC_UNITTESTS_INCLUDE_VERIFICAASSINATURAMACROS_H_

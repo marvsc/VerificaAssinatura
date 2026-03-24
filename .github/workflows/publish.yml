@@ -1,0 +1,95 @@
+name: Conan Publish
+on:
+   push:
+      tags:
+         - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+   contents: write
+
+jobs:
+   build-local-and-publish:
+      runs-on: ubuntu-latest
+      steps:
+         - uses: actions/checkout@v4
+
+         - name: Install and Setup Conan
+           uses: conan-io/setup-conan@v1
+           with:
+              version: 2.25.2
+
+         - name: Prepare environment
+           run: |
+              mkdir build
+
+         - name: Configure
+           run: |
+              conan install . --build=missing
+              cmake -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release -S . -B build
+
+         - name: Compile
+           run: |
+              make -C build/
+
+         - name: Prepare package
+           run: |
+              mkdir -p build/package/lib
+              cp build/libverificaassinatura.a build/package/lib/
+              cp -r include/ build/package/
+
+         - name: Get tag name from GITHUB_REF
+           id: get_tag_name
+           run: echo "tag_name=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+
+         - name: Generate tarball
+           run: |
+              tar -czvf build/libverificaassinatura-${{ env.tag_name }}.tgz -C build/package/ include/ lib/
+
+         - name: Create Release
+           id: create_release
+           uses: actions/create-release@v1
+           env:
+             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           with:
+             tag_name: ${{ env.tag_name }}
+             release_name: Release ${{ env.tag_name }}
+             body: |
+               Release ${{ env.tag_name }}
+             draft: false
+             prerelease: false
+
+         - name: Upload Release Asset
+           uses: actions/upload-release-asset@v1
+           env:
+             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           with:
+             upload_url: ${{ steps.create_release.outputs.upload_url }}
+             asset_path: ./build/libverificaassinatura-${{ env.tag_name }}.tgz
+             asset_name: libverificaassinatura-${{ env.tag_name }}.tgz
+             asset_content_type: application/x-archive
+
+   build-cache-and-upload:
+      runs-on: ubuntu-latest
+      steps:
+         - uses: actions/checkout@v4
+
+         - name: Install and Setup Conan
+           uses: conan-io/setup-conan@v1
+           with:
+              version: 2.25.2
+
+         - name: Configure Remote
+           run: |
+              conan remote add cloudsmith https://conan.cloudsmith.io/${{ github.actor }}/${{ secrets.CLOUDSMITH_WORKSPACE }}/
+              conan remote login cloudsmith ${{ secrets.CLOUDSMITH_USER }} -p ${{ secrets.CLOUDSMITH_TOKEN }}
+
+         - name: Get tag name from GITHUB_REF
+           id: get_tag_name
+           run: echo "tag_name=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+
+         - name: Create and Upload Package
+           run: |
+              conan create . --version ${{ env.tag_name }} --build=missing
+              conan upload verificaassinatura/${{ env.tag_name }} -r cloudsmith
+           env:
+              PKCS12_ENVVAR_PASSWORD: ${{ secrets.ENCRYPTED_PASSWORD }}

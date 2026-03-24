@@ -1,3 +1,9 @@
+/*
+ * @file example.cpp
+ * @brief Arquivo de exemplo de implementação
+ * @author Marcus Chaves
+ * @date 2026-01-27
+ */
 #include <unistd.h>
 #include <string>
 
@@ -10,6 +16,8 @@ int main(const int argc, char *const argv[]) {
     std::string pkcs12_file("");
     std::string password("");
     std::string signature_file("");
+
+    // Parse de opções passadas por parâmetros
     while ((opt = getopt(argc, argv, "p:o:x:")) != -1) {
         switch (opt) {
         case 'x':
@@ -47,7 +55,10 @@ int main(const int argc, char *const argv[]) {
         return EXIT_FAILURE;
     }
     try {
+        // Instancia a classe para verificar assinatura digital e extrair dados
         SignatureRetriever va(pkcs12_file, password, signature_file);
+
+        // Verifica a assinatura digital
         if (va.verify()) {
             std::printf("Arquivo %s de assinatura válido\n", signature_file.c_str());
             std::set<std::string> signer_names = va.get_signer_names();
