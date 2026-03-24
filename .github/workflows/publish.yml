@@ -18,6 +18,11 @@ jobs:
            with:
               version: 2.25.2
 
+         - name: Configure Remote
+           run: |
+              conan remote add cloudsmith https://conan.cloudsmith.io/${{ github.actor }}/${{ secrets.CLOUDSMITH_WORKSPACE }}/
+              conan remote login cloudsmith ${{ secrets.CLOUDSMITH_USER }} -p ${{ secrets.CLOUDSMITH_TOKEN }}
+
          - name: Prepare environment
            run: |
               mkdir build
