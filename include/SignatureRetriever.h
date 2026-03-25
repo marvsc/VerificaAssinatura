@@ -15,7 +15,6 @@
 
 #include <openssl/cms.h>
 #include <openssl/x509.h>
-#include <Poco/TemporaryFile.h>
 
 #include <Data/POCO/PKCS12POCO.h>
 
