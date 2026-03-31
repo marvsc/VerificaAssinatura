@@ -7,7 +7,6 @@
 
 #include "../include/SignatureRetriever.h"
 
-#include <PKCS12Parser.h>
 #include <OpenSSLUtils.h>
 
 #include <Poco/URIStreamOpener.h>
@@ -18,17 +17,18 @@
 #include <Poco/URI.h>
 
 #include <Poco/Net/HTTPStreamFactory.h>
+#include <Poco/Crypto/PKCS12Container.h>
 
 SignatureRetriever::SignatureRetriever(const std::string& pkcs12_file_path, const std::string& cms_file) :
         certificates_(sk_X509_new_null(), OSSL_STACK_OF_X509_free),
         store_(X509_STORE_new(), X509_STORE_free),
         content_info_(nullptr, CMS_ContentInfo_free), hash_("") {
-    // Instancia o parser PKCS 12 sem senha
-    PKCS12Parser parser(pkcs12_file_path);
+    // Instancia o container PKCS 12 sem senha
+    Poco::Crypto::PKCS12Container container(pkcs12_file_path);
 
-    // Faz parse do arquivo PKCS 12 e passa o certificado movendo a responsabilidade para o escopo do
-    // método init.
-    init(std::move(parser.parse()->certificate), cms_file);
+    // É necessário duplicar o certificado para ele se manter na memória depois que o container perder
+    // o escopo.
+    init(container.getX509Certificate().dup(), cms_file);
 }
 
 SignatureRetriever::SignatureRetriever(const std::string& pkcs12_file_path, const std::string& pkcs12_password,
@@ -36,22 +36,20 @@ SignatureRetriever::SignatureRetriever(const std::string& pkcs12_file_path, cons
                 certificates_(sk_X509_new_null(), OSSL_STACK_OF_X509_free),
                 store_(X509_STORE_new(), X509_STORE_free),
                 content_info_(nullptr, CMS_ContentInfo_free), hash_("") {
-    // Instancia o parser PKCS 12 com senha
-    PKCS12Parser parser(pkcs12_file_path, pkcs12_password);
+    // Instancia o container PKCS 12 com senha
+    Poco::Crypto::PKCS12Container container(pkcs12_file_path, pkcs12_password);
 
     // Faz parse do arquivo PKCS 12 e passa o certificado movendo a responsabilidade para o escopo do
     // método init.
-    init(std::move(parser.parse()->certificate), cms_file);
+    init(container.getX509Certificate().dup(), cms_file);
 }
 
-void SignatureRetriever::init(std::unique_ptr<X509, decltype(&X509_free)> certificate, const std::string& cms_file) {
+void SignatureRetriever::init(X509* certificate, const std::string& cms_file) {
     // Adiciona o certificado a cadeia de certificados utilizado na verificação do arquivo assinado.
-    if (!sk_X509_push(certificates_.get(), certificate.get())) {
+    if (!sk_X509_push(certificates_.get(), certificate)) {
         OpenSSLUtils::openssl_error_handling("Erro adicionando certificado a verificação");
     }
-    // XXX: É necessário liberar o ponteiro do certificado porque depois ele será destruído quando
-    //      cadeia de certificados perder o escopo.
-    std::string url_cacert(get_issuer_uri(certificate.release()));
+    std::string url_cacert(get_issuer_uri(certificate));
     std::vector<char> cacert = download_cacert(url_cacert);
     populate_store(pkcs7_buffer_to_structure(cacert));
 

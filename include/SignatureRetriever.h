@@ -16,8 +16,6 @@
 #include <openssl/cms.h>
 #include <openssl/x509.h>
 
-#include <Data/POCO/PKCS12POCO.h>
-
 /*
  * @class SignatureRetriever
  * @brief Classe para verificar assinatura digital e extrair informações da assinatura.
@@ -98,7 +96,7 @@ private:
      * @param[in] certificate Certificado a ser utilizado na verificação do arquivo assinado.
      * @param[in] cms_file Path completo para o arquivo assinado utilizando algoritmo CMS attached.
      */
-    void init(std::unique_ptr<X509, decltype(&X509_free)> certificate, const std::string& cms_file);
+    void init(X509* certificate, const std::string& cms_file);
 
     /*
      * @brief Obtém o url do certificado da autoridade certificadora.

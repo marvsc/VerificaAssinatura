@@ -56,6 +56,7 @@ class verificaassinaturaRecipe(ConanFile):
         self.options["poco"].enable_sevenzip = False
         self.options["poco"].enable_xml = False
         self.options["poco"].enable_zip = False
+        self.options["openssl"].no_module = True
 
     def layout(self):
         cmake_layout(self)
