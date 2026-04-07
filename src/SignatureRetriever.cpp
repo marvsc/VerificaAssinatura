@@ -49,9 +49,15 @@ void SignatureRetriever::init(X509* certificate, const std::string& cms_file) {
     if (!sk_X509_push(certificates_.get(), certificate)) {
         OpenSSLUtils::openssl_error_handling("Erro adicionando certificado a verificação");
     }
-    std::string url_cacert(get_issuer_uri(certificate));
-    std::vector<char> cacert = download_cacert(url_cacert);
-    populate_store(pkcs7_buffer_to_structure(cacert));
+
+    // Obtém a cadeia de certificados da autoridade certificadora.
+    auto ca_cert_chain = OpenSSLUtils::get_ca_cert_chain(certificate);
+    for (Poco::Crypto::X509Certificate ca_cert : ca_cert_chain) {
+        // Adiciona o certificado da autoridade certificadora ao armazenamento.
+        if (!X509_STORE_add_cert(store_.get(), ca_cert.dup())) {
+            OpenSSLUtils::openssl_error_handling("Erro adicionando certificado da autoridade certificadora");
+        }
+    }
 
     // Obtém os parametros do armazenamento.
     X509_VERIFY_PARAM* param = X509_STORE_get0_param(store_.get());
@@ -81,119 +87,6 @@ bool SignatureRetriever::verify() {
         return false;
     }
     return true;
-}
-
-const std::string SignatureRetriever::get_issuer_uri(const X509* certificate) const {
-    // Acessa a extenção do certificado.
-    X509_EXTENSION *extension = X509_get_ext(certificate, X509_get_ext_by_NID(certificate,
-            NID_info_access, -1));
-    if (!extension) {
-        throw std::runtime_error("Não foi possível extrair a extensão do certificado X509");
-    }
-
-    // Extrai as informações de acesso a autoridade certificadora a partir da extenção do
-    // certificado.
-    std::unique_ptr<AUTHORITY_INFO_ACCESS, decltype(&AUTHORITY_INFO_ACCESS_free)> aia(
-            (AUTHORITY_INFO_ACCESS*) X509V3_EXT_d2i(extension), AUTHORITY_INFO_ACCESS_free);
-    if (!aia.get()) {
-        throw std::runtime_error("Não foi possível decodificar a extensão do certificado X509");
-    }
-
-    // Obtém a quantidade de descrição de acessos presente nas informações de acesso a autoridade
-    // certificadora.
-    int num_aia = sk_ACCESS_DESCRIPTION_num(aia.get());
-
-    // Busca pela url do certificado da autoridade certificadora entre as descrições de acesso.
-    for (int i = 0; i < num_aia; i++) {
-
-        // Obtém a descrição do acesso.
-        ACCESS_DESCRIPTION *ad = sk_ACCESS_DESCRIPTION_value(aia.get(), i);
-
-        // Se o identificador numérido não corresponder ao identificador de emissor de autoridade
-        // certificadora ou o tipo de localização não corresponder a url geral, a descrição de acesso
-        // não corresponde a url.
-        if (OBJ_obj2nid(ad->method) != NID_ad_ca_issuers || ad->location->type != GEN_URI) {
-            continue;
-        }
-
-        // Obtém a url em formato ASN1
-        const ASN1_IA5STRING *uri_str = ad->location->d.uniformResourceIdentifier;
-
-        // Verifica se a url encontrada é válida.
-        if (uri_str && ASN1_STRING_length(uri_str) <= 0) {
-            throw std::runtime_error("URI issuer vazio");
-        }
-
-        // Obtém a url convertendo para formato string.
-        return reinterpret_cast<const char*>(ASN1_STRING_get0_data(uri_str));
-    }
-
-    // Se não encontrar a url, dispara uma exceção.
-    throw std::runtime_error("URI issuer não encontrado");
-}
-
-const std::vector<char> SignatureRetriever::download_cacert(const std::string &url) const {
-    // Registra a fabrica de stream HTTP.
-    Poco::Net::HTTPStreamFactory::registerFactory();
-
-    // Define a url para baixar o certificado da autoridade certificadora.
-    Poco::URI uri(url);
-
-    // Abre o stream com o certificado da autoridade certificadora.
-    std::unique_ptr<std::istream> cacert_stream(Poco::URIStreamOpener::defaultOpener().open(uri));
-
-    // Baixa o certificado da autoridade certificadora para um vetor em memória.
-    std::vector<char> cacert_vector(std::istreambuf_iterator<char>(*cacert_stream.get()),
-            std::istreambuf_iterator<char>());
-    return cacert_vector;
-}
-
-std::unique_ptr<PKCS7, decltype(&PKCS7_free)> SignatureRetriever::pkcs7_buffer_to_structure(const std::vector<char>& buffer) const {
-    // Carrega o vetor para um buffer.
-    std::unique_ptr<BIO, decltype(&BIO_free)> input(BIO_new_mem_buf(buffer.data(), buffer.size()), BIO_free);
-
-    // Obtém a estrutura PKCS 7 a partir do buffer.
-    std::unique_ptr<PKCS7, decltype(&PKCS7_free)> pkcs7(d2i_PKCS7_bio(input.get(), nullptr), PKCS7_free);
-    if (!pkcs7.get()) {
-        OpenSSLUtils::openssl_error_handling("Erro decodificando PKCS7");
-    }
-
-    // Verifica se o PKCS 7 é assinado.
-    if (!PKCS7_type_is_signed(pkcs7.get())) {
-        throw std::runtime_error("PKCS7 não assinado");
-    }
-    return pkcs7;
-}
-
-void SignatureRetriever::populate_store(std::unique_ptr<PKCS7, decltype(&PKCS7_free)> pkcs7) {
-    // Obtém a cadeia de certificados presente no PKCS 7.
-    STACK_OF(X509)* certificate_chain = pkcs7->d.sign->cert;
-
-    // Obtém a quantidade de certificados presentes na cadeia de certificados.
-    int certificate_chain_size = sk_X509_num(certificate_chain);
-
-    // Busca certificados da autoridade certificadora dentro da cadeia de certificados.
-    for (int i = 0; i < certificate_chain_size; i++) {
-
-        // Obtém o certificado.
-        X509* certificate = sk_X509_value(certificate_chain, i);
-        int crit = -1;
-
-        // Obtém as restrições básicas contidas na extenção do certificado.
-        std::unique_ptr<BASIC_CONSTRAINTS, decltype(&BASIC_CONSTRAINTS_free)> basic_constraints((BASIC_CONSTRAINTS*) X509_get_ext_d2i(certificate,
-                NID_basic_constraints, &crit, nullptr), BASIC_CONSTRAINTS_free);
-
-        // Se não houver restrições básicas ou não indicar autoridade certificadora nas restrições
-        // básicas, não é certificado da autoridade certificadora.
-        if (!basic_constraints.get() || !basic_constraints->ca) {
-            continue;
-        }
-
-        // Adiciona o certificado da autoridade certificadora ao armazenamento.
-        if (!X509_STORE_add_cert(store_.get(), certificate)) {
-            OpenSSLUtils::openssl_error_handling("Erro adicionando certificado da autoridade certificadora");
-        }
-    }
 }
 
 std::set<std::string> SignatureRetriever::get_signer_names() {

@@ -97,40 +97,6 @@ private:
      * @param[in] cms_file Path completo para o arquivo assinado utilizando algoritmo CMS attached.
      */
     void init(X509* certificate, const std::string& cms_file);
-
-    /*
-     * @brief Obtém o url do certificado da autoridade certificadora.
-     *
-     * @param[in] certificate Certificado gerado pela autoridade certificadora.
-     *
-     * @return Url para download do certificado a autoridade certificadora.
-     */
-    const std::string get_issuer_uri(const X509* certificate) const;
-
-    /*
-     * @brief Efetua download do certificado da autoridade certificadora e mantém em memória.
-     *
-     * @param[in] url Url para download do certificado da autoridade certificadora.
-     *
-     * @return Buffer com o certificado da autoridade certificadora.
-     */
-    const std::vector<char> download_cacert(const std::string &url) const;
-
-    /*
-     * @brief Obtém a estrutura PKCS 7 a partir de um buffer.
-     *
-     * @param[in] buffer PKCS 7 em um buffer.
-     *
-     * @return Estrutura PKCS 7.
-     */
-    std::unique_ptr<PKCS7, decltype(&PKCS7_free)> pkcs7_buffer_to_structure(const std::vector<char>& buffer) const;
-
-    /*
-     * @brief Encontra os certificados da autoridade certificadora e adiciona ao armazenamento.
-     *
-     * @param[in] pkcs7 Estrutura PKCS 7.
-     */
-    void populate_store(std::unique_ptr<PKCS7, decltype(&PKCS7_free)> pkcs7);
 };
 
 #endif /* INCLUDE_SIGNATURERETRIEVER_H_ */
