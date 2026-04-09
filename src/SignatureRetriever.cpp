@@ -1,9 +1,3 @@
-/*
- * SignatureRetriever.cpp
- *
- *  Created on: 26 de fev. de 2026
- *      Author: marcus.chaves
- */
 
 #include "../include/SignatureRetriever.h"
 
