@@ -14,6 +14,7 @@ class verificaassinaturaTestConan(ConanFile):
         self.requires("assinaturadigital/[>v0.1.15]")
         self.requires("openssl/[>3.5.0]")
         self.requires("cppunit/[>=1.15.1]")
+        self.requires("poco/[>1.11.0]")
 
     def build(self):
         cmake = CMake(self)
