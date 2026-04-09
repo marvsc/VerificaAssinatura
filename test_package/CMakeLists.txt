@@ -8,11 +8,11 @@ find_package(cppunit CONFIG REQUIRED)
 find_package(Poco CONFIG REQUIRED)
 
 add_executable(example src/example.cpp)
-target_link_libraries(example poco::poco openssl::openssl verificaassinatura::verificaassinatura)
+target_link_libraries(example Poco::Poco openssl::openssl verificaassinatura::verificaassinatura)
 
 add_executable(teste src/teste.cpp
                     src/UnitTests/src/SignatureRetrieverTest.cpp)
-target_link_libraries(teste poco::poco openssl::openssl verificaassinatura::verificaassinatura cppunit::cppunit)
+target_link_libraries(teste Poco::Poco openssl::openssl verificaassinatura::verificaassinatura cppunit::cppunit)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/resources/arquivos/signature.p7s
 ${CMAKE_CURRENT_BINARY_DIR}/signature.p7s
