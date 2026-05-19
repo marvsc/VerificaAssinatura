@@ -97,6 +97,11 @@ private:
      * @param[in] cms_file Path completo para o arquivo assinado utilizando algoritmo CMS attached.
      */
     void init(X509* certificate, const std::string& cms_file);
+
+    /*
+     * @brief Classe de testes definida como amiga para acessar métodos e atributos privados.
+     */
+    friend class SignatureRetrieverTest;
 };
 
 #endif /* INCLUDE_SIGNATURERETRIEVER_H_ */
