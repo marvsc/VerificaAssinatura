@@ -40,9 +40,14 @@ void SignatureRetrieverTest::teste_verificacao_com_senha_estendido() {
     Poco::Crypto::PKCS12Container container(PKCS12_FILE_PATH, password);
     std::unique_ptr<X509, decltype(&X509_free)> certificate(container.getX509Certificate().dup(),
             X509_free);
+    X509* equal = nullptr;
+    for (int i = 0; i < sk_X509_num(signature_retriever.certificates_.get()) && !equal; i++) {
+        if (X509_cmp((equal = sk_X509_value(signature_retriever.certificates_.get(), i)), certificate.get())) {
+            equal = nullptr;
+        }
+    }
     CPPUNIT_ASSERT_MESSAGE(PRINTF_MESSAGE("Certificado contido no arquivo %s não adicionado a cadeia de certificados utilizada na verificação do arquivo assinado",
-            PKCS12_FILE_PATH), sk_X509_find(signature_retriever.certificates_.get(),
-                    certificate.get()) >= 0);
+            PKCS12_FILE_PATH), equal);
 
     // Obtém os certificados de autoridade certificadora adicionados ao armazenamento.
     STACK_OF(X509_OBJECT)* ca_certs = X509_STORE_get0_objects(signature_retriever.store_.get());
