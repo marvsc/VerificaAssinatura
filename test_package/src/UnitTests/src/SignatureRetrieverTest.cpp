@@ -11,17 +11,6 @@
 
 #include <Poco/Crypto/PKCS12Container.h>
 
-// Tamanho do buffer utilizado na contrução de mensagens de erro.
-#define BUFFER_SIZE 256
-
-// Macro para criação de mensagens de erro
-#define PRINTF_MESSAGE(format, ...) \
-    ([&]() { \
-            char buffer[BUFFER_SIZE]; \
-            std::snprintf(buffer, BUFFER_SIZE, format, ##__VA_ARGS__); \
-            return std::string(buffer); \
-    }())
-
 // Registra o suite de testes
 CPPUNIT_TEST_SUITE_REGISTRATION(SignatureRetrieverTest);
 

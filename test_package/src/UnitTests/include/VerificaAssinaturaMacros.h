@@ -14,6 +14,15 @@
 #define PKCS12_ENVVAR_PASSWORD "PKCS12_ENVVAR_PASSWORD"
 #define SIGNATURE_FILE_PATH "signature.p7s"
 #define MESSAGE_DIGEST_ALGORITHM "sha256"
+#define BUFFER_SIZE 256
+
+// Macro para criação de mensagens de erro
+#define PRINTF_MESSAGE(format, ...) \
+    ([&]() { \
+            char buffer[BUFFER_SIZE]; \
+            std::snprintf(buffer, BUFFER_SIZE, format, ##__VA_ARGS__); \
+            return std::string(buffer); \
+    }())
 
 
 #endif /* TEST_PACKAGE_SRC_UNITTESTS_INCLUDE_VERIFICAASSINATURAMACROS_H_ */
