@@ -8,7 +8,7 @@ class verificaassinaturaRecipe(ConanFile):
     package_type = "library"
 
     # Optional metadata
-    license = ""
+    license = "GPL-3.0-only"
     author = "Marcus Chaves"
     url = "git@github.com:marvsc/VerificaAssinatura.git"
     description = "Verifica integridade da assinatura digital"
