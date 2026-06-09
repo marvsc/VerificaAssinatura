@@ -46,7 +46,7 @@ Faz a verificação de arquivo assinado utilizando algoritmo CMS attached e extr
     tar zxvf libverificaassinatura-v<versão>.tgz -C <diretório a descompactar>
     ```
 
-### 🛆 CMake
+### 📜 CMake
 
 1. Clonar o projeto:
 
