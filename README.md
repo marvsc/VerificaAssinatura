@@ -116,7 +116,7 @@ Faz a verificação de arquivo assinado utilizando algoritmo CMS attached e extr
     export PKCS12_ENVVAR_PASSWORD=<senha_enc>
     ```
 
-> [!NOTE]
+> [!IMPORTANT]
 > A chave e o vetor de inicialização podem ser obtidos no arquivo test_package/src/UnitTests/include/VerificaAssinaturaMacros.h
 
 3. Criar o projeto utilizando conan:
@@ -128,7 +128,7 @@ Faz a verificação de arquivo assinado utilizando algoritmo CMS attached e extr
 > [!NOTE]
 > O comando acima vai baixar e compilar todas as dependencias, compilar o projeto e executar os testes que são compostos de 2 executáveis. Um faz os testes unitários e o outro realiza a verifica a assinatura digital do arquivo test_package/resources/arquivos/sinature.p7s e extrai os nomes dos assinantes, datas e horas de assinatura, hash do arquivo em hexadecimal e nomes dos algoritmos de sumário de mensagens utilizados para cifrar o conteúdo. A verificação é feita utilizando o certificado contido no arquivo PKCS 12 test_package/resources/pkcs12/certificado_teste_hub.pfx.
 
-## 🔩 Pipeline
+## 🤞 Pipeline
 Ao criar uma tag, duas pipelines são disparadas via github para gerar a release automaticamente e para publicar o pacote no repositório do conan (cloudsmith).
 
 ## ✅ Como usar
