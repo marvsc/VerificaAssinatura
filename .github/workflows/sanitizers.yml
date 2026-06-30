@@ -1,0 +1,98 @@
+name: Sanitizers
+
+on:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitizer: [asan, ubsan, tsan]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build python3-pip
+
+      - name: Install and Setup Conan
+        uses: conan-io/setup-conan@v1
+        with:
+           version: 2.25.2
+
+      - name: Configure Remote
+        run: |
+           conan remote add cloudsmith https://conan.cloudsmith.io/${{ github.actor }}/${{ secrets.CLOUDSMITH_WORKSPACE }}/
+           conan remote login cloudsmith ${{ secrets.CLOUDSMITH_USER }} -p ${{ secrets.CLOUDSMITH_TOKEN }}
+
+      - name: Install Conan dependencies
+        env:
+          SANITIZER: ${{ matrix.sanitizer }}
+          SAN_FLAGS: ${{ matrix.sanitizer == 'asan' && '-fsanitize=address -fno-omit-frame-pointer -g' || matrix.sanitizer == 'tsan' && '-fsanitize=thread -g' || '-fsanitize=undefined -fno-sanitize-recover=undefined -g' }}
+          LINK_FLAGS: ${{ matrix.sanitizer == 'asan' && '-fsanitize=address' || matrix.sanitizer == 'tsan' && '-fsanitize=thread' || '-fsanitize=undefined' }}
+          CC: ${{ matrix.sanitizer == 'tsan' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.sanitizer == 'tsan' && 'clang++' || 'g++' }}
+        run: |
+          set -euo pipefail
+          # clang é mais confiável para thread sanitizer
+          if [ "${SANITIZER}" = "tsan" ]; then
+            sudo apt-get install -y clang
+          fi
+
+          echo "Sanitizer flags: ${SAN_FLAGS}"
+
+          # Instala pendencias e gera os toolchains do cmake através do conan
+          conan install . --build=missing -s build_type=Debug
+
+          # Configura o projeto via cmake para passar as flags dos sanitizers
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_TOOLCHAIN_FILE=build/Debug/generators/conan_toolchain.cmake \
+            -DCMAKE_CXX_FLAGS="${SAN_FLAGS}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${LINK_FLAGS}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="${LINK_FLAGS}"
+
+          # Compila e instala o projeto
+          cmake --build build -- -j$(nproc)
+          cmake --install build --prefix build/install
+
+      - name: Build and run test_package against installed package
+        env:
+          SAN_FLAGS: ${{ matrix.sanitizer == 'asan' && '-fsanitize=address -fno-omit-frame-pointer -g' || matrix.sanitizer == 'tsan' && '-fsanitize=thread -g' || '-fsanitize=undefined -fno-sanitize-recover=undefined -g' }}
+          LINK_FLAGS: ${{ matrix.sanitizer == 'asan' && '-fsanitize=address' || matrix.sanitizer == 'tsan' && '-fsanitize=thread' || '-fsanitize=undefined' }}
+          CC: ${{ matrix.sanitizer == 'tsan' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.sanitizer == 'tsan' && 'clang++' || 'g++' }}
+          PKCS12_ENVVAR_PASSWORD: ${{ secrets.ENCRYPTED_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # Instala pendencias e gera os toolchains do cmake através do conan
+          conan install test_package --build=missing -s build_type=Debug
+
+          # Configura e compila o pacote de testes
+          cmake -S test_package -B test_package/build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_PREFIX_PATH=$PWD/build/install \
+            -DCMAKE_TOOLCHAIN_FILE=build/Debug/generators/conan_toolchain.cmake \
+            -DCMAKE_CXX_FLAGS="${SAN_FLAGS}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${LINK_FLAGS}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="${LINK_FLAGS}" \
+            -Dverificaassinatura_DIR=build/cmake/
+          cmake --build test_package/build -- -j$(nproc)
+
+          # Executa os testes unitários com os sanitizers habilitados
+          if [ -x test_package/build/teste ]; then
+            echo "Running test package executable teste"
+            pushd test_package/build
+            ./teste
+            popd
+          else
+            echo "ERRO: No test binary found; skipping run"
+            exit 1
+          fi

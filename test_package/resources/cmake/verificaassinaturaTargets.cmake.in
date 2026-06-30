@@ -1,0 +1,16 @@
+# Minimal imported target to link against the installed static library
+# Adjusted to point to the installed files in this prefix.
+
+if(NOT TARGET verificaassinatura::verificaassinatura)
+  add_library(verificaassinatura::verificaassinatura STATIC IMPORTED)
+  # compute install prefix from this config file location, then build absolute paths
+  get_filename_component(_verificaassinatura_prefix @VERIFICA_ASSINATURA_PREFIX@ ABSOLUTE)
+  set(_verificaassinatura_lib_abs "${_verificaassinatura_prefix}/lib/libverificaassinatura.a")
+  # compute absolute include dir path to avoid "non-existent path" checks
+  # the install layout places headers in <prefix>/include, so go up three levels
+  get_filename_component(_verificaassinatura_include_dir "${_verificaassinatura_prefix}/include" ABSOLUTE)
+  set_target_properties(verificaassinatura::verificaassinatura PROPERTIES
+    IMPORTED_LOCATION "${_verificaassinatura_lib_abs}"
+    INTERFACE_INCLUDE_DIRECTORIES "${_verificaassinatura_include_dir}"
+  )
+endif()

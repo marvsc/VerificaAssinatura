@@ -23,7 +23,7 @@ class verificaassinaturaRecipe(ConanFile):
     exports_sources = "CMakeLists.txt", "src/*", "include/*"
 
     def requirements(self):
-        self.requires("openssl/[>3.5.0]")
+        self.requires("openssl/[>3.5.0 <4.0.0]")
         self.requires("assinaturadigital/[>v0.1.15]")
         self.requires("poco/[>1.11.0]")
 

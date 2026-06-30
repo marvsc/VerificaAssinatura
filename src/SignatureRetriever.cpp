@@ -3,6 +3,7 @@
 
 #include <OpenSSLUtils.h>
 
+#include <openssl/crypto.h>
 #include <Poco/URIStreamOpener.h>
 #include <Poco/DateTime.h>
 #include <Poco/DateTimeParser.h>
@@ -47,8 +48,9 @@ void SignatureRetriever::init(X509* certificate, const std::string& cms_file) {
     // Obtém a cadeia de certificados da autoridade certificadora.
     auto ca_cert_chain = OpenSSLUtils::get_ca_cert_chain(certificate);
     for (Poco::Crypto::X509Certificate ca_cert : ca_cert_chain) {
+        std::unique_ptr<X509, decltype(&X509_free)> ca_cert_ptr(ca_cert.dup(), X509_free);
         // Adiciona o certificado da autoridade certificadora ao armazenamento.
-        if (!X509_STORE_add_cert(store_.get(), ca_cert.dup())) {
+        if (!X509_STORE_add_cert(store_.get(), ca_cert_ptr.get())) {
             OpenSSLUtils::openssl_error_handling("Erro adicionando certificado da autoridade certificadora");
         }
     }
@@ -95,18 +97,19 @@ std::set<std::string> SignatureRetriever::get_signer_names() {
     }
 
     // Obtém a cadeia de certificados dos assinantes.
-    STACK_OF(X509)* signer_certs = CMS_get0_signers(content_info_.get());
+    std::unique_ptr<STACK_OF(X509), void(*)(STACK_OF(X509)*)> signer_certs(CMS_get0_signers(content_info_.get()),
+            [](STACK_OF(X509)* p) { OPENSSL_sk_free(ossl_check_X509_sk_type(p)); });
     if (!signer_certs) {
         // Se não houver nenhum certificado de assinante, retorna o set vazio.
         return signer_names_;
     }
 
     // Obtém a quantidade de certificados presentes na cadeia de certificados.
-    int signer_certs_length = sk_X509_num(signer_certs);
+    int signer_certs_length = sk_X509_num(signer_certs.get());
     for (int i = 0; i < signer_certs_length; i++) {
 
         // Obtém o nome do assunto do certificado do assinante.
-        X509_NAME* subject_name = X509_get_subject_name(sk_X509_value(signer_certs, i));
+        X509_NAME* subject_name = X509_get_subject_name(sk_X509_value(signer_certs.get(), i));
 
         // Extrai o CN no assunto.
         int ca_location = X509_NAME_get_index_by_NID(subject_name, NID_commonName, -1);
@@ -188,6 +191,11 @@ std::set<std::string> SignatureRetriever::get_signing_times() {
 
             // Obtém a data e hora da assinatura baseado na estrutura do utc time.
             std::string utc_time(reinterpret_cast<const char*>(type->value.utctime->data), type->value.utctime->length);
+
+            // Normaliza o formato do utc time removendo o caracter Z do final da string, caso ele exista.
+            if (utc_time.back() == 'Z') {
+                utc_time.pop_back();
+            }
             Poco::DateTimeParser::parse("%y%m%d%H%M%S", utc_time, date_time, time_zone);
             signing_times_.emplace(Poco::DateTimeFormatter::format(date_time, Poco::DateTimeFormat::SORTABLE_FORMAT, time_zone));
             continue;
@@ -215,7 +223,9 @@ std::string SignatureRetriever::get_hash() {
     }
 
     // Obtém os dados do atributo encapContent e converte para hexadecimal.
-    hash_.assign(OPENSSL_buf2hexstr((ASN1_STRING_get0_data(*encap_content)), ASN1_STRING_length(*encap_content)));
+    std::unique_ptr<char, void(*)(char*)> hex_str(OPENSSL_buf2hexstr((ASN1_STRING_get0_data(*encap_content)),
+            ASN1_STRING_length(*encap_content)), [](char* p) { OPENSSL_free(p); });
+    hash_.assign(hex_str.get());
     return hash_;
 }
 

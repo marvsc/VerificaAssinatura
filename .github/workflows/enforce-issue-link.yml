@@ -1,0 +1,46 @@
+name: Enforce Issue Association
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  check-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PR is linked to issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            // 1. Verifica keywords no título ou descrição
+            const bodyAndTitle = `${pr.title}\n${pr.body || ''}`.toLowerCase();
+            const hasKeyword = /(fixes|closes|resolves|relates to)\s+#\d+/.test(bodyAndTitle);
+            
+            // 2. Verifica via API se há issues linkadas via UI
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number
+            });
+            
+            const hasLinkedIssue = issue.linked_issues && issue.linked_issues.length > 0;
+            
+            if (!hasKeyword && !hasLinkedIssue) {
+              core.setFailed(
+                '❌ This PR must be linked to at least one issue.\n\n' +
+                'You can:\n' +
+                '1. Use keywords in the PR description: "Fixes #123", "Closes #456", "Resolves #789"\n' +
+                '2. Link an issue via the UI in the Right Sidebar under "Linked issues"\n\n' +
+                'Example:\n' +
+                '```\n' +
+                'This PR fixes the bug in the cryptographic summary calculation.\n' +
+                'Fixes #42\n' +
+                '```'
+              );
+            } else if (hasKeyword) {
+              core.info('✅ PR is properly linked via keywords');
+            } else if (hasLinkedIssue) {
+              core.info('✅ PR is properly linked via UI');
+            }
