@@ -10,7 +10,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/resources/cmake/verificaassinaturaCon
 ${CMAKE_CURRENT_BINARY_DIR}/cmake/verificaassinaturaConfig.cmake
 COPYONLY)
 
-find_package(verificaassinatura CONFIG REQUIRED)
+find_package(verificaassinatura REQUIRED)
 find_package(OpenSSL CONFIG REQUIRED)
 find_package(cppunit CONFIG REQUIRED)
 find_package(Poco CONFIG REQUIRED)
