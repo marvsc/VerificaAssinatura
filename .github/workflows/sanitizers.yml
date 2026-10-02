@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        sanitizer: [asan, ubsan, tsan]
+        sanitizer: [asan, usan, tsan]
       fail-fast: false
 
     steps:
