@@ -1,0 +1,187 @@
+name: Análise de Código com Cppcheck
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cppcheck-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Instalar cppcheck
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck
+
+    - name: Instalar dependências do projeto
+      run: |
+        sudo apt-get install -y build-essential cmake
+        sudo apt-get install -y libssl-dev libpoco-dev
+    
+    - name: Install and Setup Conan
+      uses: conan-io/setup-conan@v1
+      with:
+          version: 2.25.2
+
+    - name: Configure Remote
+      run: |
+          conan remote add cloudsmith https://conan.cloudsmith.io/${{ github.actor }}/${{ secrets.CLOUDSMITH_WORKSPACE }}/
+          conan remote login cloudsmith ${{ secrets.CLOUDSMITH_USER }} -p ${{ secrets.CLOUDSMITH_TOKEN }}
+
+    - name: Configurar ambiente
+      run: |
+        # Instala pendencias e gera os toolchains do cmake através do conan
+        conan install . --build=missing -s build_type=Debug
+
+        # Configura o projeto via cmake
+        cmake -S . -B build/Debug -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_TOOLCHAIN_FILE=build/Debug/generators/conan_toolchain.cmake
+
+    - name: Executar Cppcheck na análise estática de código
+      run: |
+        echo "=== Executando Cppcheck na análise estática de código ==="
+        
+        # Configurações de análise
+        CPPCHECK_CONFIG="
+        --enable=all
+        --std=c++17
+        --language=c++
+        -I include
+        -I test_package/src/UnitTests/include
+        -i test_package/build
+        --suppress=missingIncludeSystem
+        --suppress=unusedFunction
+        --suppress=unusedStructMember
+        --suppress=shadowFunction
+        --suppress=duplicateBreak
+        --suppress=duplicateCondition
+        --suppress=duplicateReturn
+        --suppress=constStatement
+        --suppress=noReturnFunction
+        --suppress=unmatchedSuppression
+        --suppress=missingInclude
+        --suppress=tooFewDigits
+        --suppress=tooManyDigits
+        --suppress=integerOverflow
+        --suppress=overflowUnknown
+        --suppress=overflowSigned
+        --suppress=overflowUnsigned
+        --suppress=overflowNegate
+        --suppress=overflowAdd
+        --suppress=overflowSubtract
+        --suppress=overflowMultiply
+        --suppress=overflowDivide
+        --suppress=overflowModulus
+        --suppress=overflowShift
+        --suppress=overflowBitwise
+        --suppress=overflowLogical
+        --suppress=overflowCompare
+        --suppress=overflowCast
+        --suppress=overflowConstant
+        "
+        
+        # Executar cppcheck nos diretórios principais.
+        # O relatório XML é escrito em stderr pelo Cppcheck.
+        echo "Analisando src/, include/ e test_package/..."
+        cppcheck $CPPCHECK_CONFIG --xml src/ include/ test_package/ 2> cppcheck-report.xml
+        
+        # Gerar relatório HTML
+        echo "Gerando relatório HTML..."
+        cppcheck-htmlreport --file=cppcheck-report.xml --report-dir=cppcheck-report --source-dir=.
+
+    - name: Verificar resultados do Cppcheck
+      run: |
+        echo "=== Verificando resultados do Cppcheck ==="
+        
+        # Verificar se há erros no relatório XML
+        if [ -f cppcheck-report.xml ]; then
+          ERROR_COUNT=$(grep -c 'severity="error"' cppcheck-report.xml || true)
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+                echo "❌ Cppcheck encontrou $ERROR_COUNT erro(s)"
+                echo "Detalhes no arquivo: cppcheck-report.xml"
+                exit 1
+            else
+                echo "✅ Cppcheck concluído com sucesso (sem erros)"
+            fi
+        else
+            echo "⚠️  Arquivo de relatório não encontrado"
+        fi
+
+    - name: Carregar relatório HTML
+      id: upload-html-report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: cppcheck-html-report
+        path: cppcheck-report/
+        retention-days: 30
+
+    - name: Carregar relatório XML
+      id: upload-xml-report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: cppcheck-xml-report
+        path: cppcheck-report.xml
+        retention-days: 30
+
+    - name: Carregar resumo do Cppcheck
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: cppcheck-summary
+        path: |
+          cppcheck-report/
+          cppcheck-report.xml
+        retention-days: 30
+
+    - name: Gerar resumo para PR
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        HTML_REPORT_URL: ${{ steps.upload-html-report.outputs.artifact-url }}
+        XML_REPORT_URL: ${{ steps.upload-xml-report.outputs.artifact-url }}
+      run: |
+        echo "## 📊 Análise de Código com Cppcheck" > cppcheck-summary.md
+        echo "### Resultados" >> cppcheck-summary.md
+        echo "- Status: ${{ job.status == 'success' && '✅ Concluído' || '❌ Falhou' }}" >> cppcheck-summary.md
+        echo "- Data: $(date)" >> cppcheck-summary.md
+        echo "- Repositório: ${{ github.repository }}" >> cppcheck-summary.md
+        echo "" >> cppcheck-summary.md
+        echo "### Como usar o Cppcheck localmente" >> cppcheck-summary.md
+        printf '%s\n' '```bash' >> cppcheck-summary.md
+        echo "sudo apt-get install cppcheck" >> cppcheck-summary.md
+        echo "cppcheck --enable=all --std=c++17 src/ include/ test_package/" >> cppcheck-summary.md
+        printf '%s\n' '```' >> cppcheck-summary.md
+        echo "" >> cppcheck-summary.md
+        echo "### Arquivos Gerados" >> cppcheck-summary.md
+        echo "- [Relatório HTML]($HTML_REPORT_URL)" >> cppcheck-summary.md
+        echo "- [Relatório XML]($XML_REPORT_URL)" >> cppcheck-summary.md
+        
+        # Adicionar comentário no PR se for um pull request
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          gh pr comment "$PR_NUMBER" --body-file cppcheck-summary.md
+        fi
+
+    - name: Notificar sobre falhas
+      if: failure()
+      run: |
+        echo "❌ Análise de código falhou"
+        echo "Verifique os relatórios gerados para mais detalhes"
+        echo "Arquivos:
+        - cppcheck-report.html
+        - cppcheck-report.xml
+        - cppcheck-summary.md"
