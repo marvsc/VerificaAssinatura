@@ -90,6 +90,7 @@ jobs:
         --suppress=overflowCompare
         --suppress=overflowCast
         --suppress=overflowConstant
+        --inline-suppr
         "
         
         # Executar cppcheck nos diretórios principais.

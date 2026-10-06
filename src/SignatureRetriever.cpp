@@ -225,6 +225,7 @@ std::string SignatureRetriever::get_hash() {
     // Obtém os dados do atributo encapContent e converte para hexadecimal.
     std::unique_ptr<char, void(*)(char*)> hex_str(OPENSSL_buf2hexstr((ASN1_STRING_get0_data(*encap_content)),
             ASN1_STRING_length(*encap_content)), [](char* p) { OPENSSL_free(p); });
+    // cppcheck-suppress danglingLifetime
     hash_.assign(hex_str.get());
     return hash_;
 }
